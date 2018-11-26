@@ -64,16 +64,16 @@ func (us *StubUsersService) Delete(usrID string) error {
 	return us.DeleteFunc(usrID)
 }
 
-func WrapUsersService(grpSvc *admin.UsersService) UsersService {
+func WrapUsersService(usrSvc *admin.UsersService) UsersService {
 	return &StubUsersService{
 		InsertFunc: func(usr *admin.User) (*admin.User, error) {
-			return nil, nil
+			return usrSvc.Insert(usr).Do()
 		},
 		GetFunc: func(usrID string) (*admin.User, error) {
-			return nil, nil
+			return usrSvc.Get(usrID).Do()
 		},
 		DeleteFunc: func(userID string) error {
-			return nil
+			return usrSvc.Delete(userID).Do()
 		},
 	}
 }
