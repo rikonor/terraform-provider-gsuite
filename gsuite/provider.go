@@ -86,8 +86,9 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 }
 
 type ServiceWrapper struct {
-	UsersService  UsersService
-	GroupsService GroupsService
+	UsersService   UsersService
+	GroupsService  GroupsService
+	MembersService MembersService
 }
 
 func newServiceWrapper(httpClient *http.Client) *ServiceWrapper {
@@ -97,6 +98,7 @@ func newServiceWrapper(httpClient *http.Client) *ServiceWrapper {
 
 	svcWrapper.UsersService = WrapUsersService(adminSvc.Users)
 	svcWrapper.GroupsService = WrapGroupsService(adminSvc.Groups)
+	svcWrapper.MembersService = WrapMembersService(adminSvc.Members)
 
 	return svcWrapper
 }

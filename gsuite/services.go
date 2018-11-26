@@ -77,3 +77,41 @@ func WrapUsersService(usrSvc *admin.UsersService) UsersService {
 		},
 	}
 }
+
+type MembersService interface {
+	Insert(groupKey string, member *admin.Member) (*admin.Member, error)
+	Get(groupKey string, memberKey string) (*admin.Member, error)
+	Delete(groupKey string, memberKey string) error
+}
+
+type StubMembersService struct {
+	InsertFunc func(groupKey string, member *admin.Member) (*admin.Member, error)
+	GetFunc    func(groupKey string, memberKey string) (*admin.Member, error)
+	DeleteFunc func(groupKey string, memberKey string) error
+}
+
+func (ms *StubMembersService) Insert(groupKey string, member *admin.Member) (*admin.Member, error) {
+	return ms.InsertFunc(groupKey, member)
+}
+
+func (ms *StubMembersService) Get(groupKey string, memberKey string) (*admin.Member, error) {
+	return ms.GetFunc(groupKey, memberKey)
+}
+
+func (ms *StubMembersService) Delete(groupKey string, memberKey string) error {
+	return ms.DeleteFunc(groupKey, memberKey)
+}
+
+func WrapMembersService(membersSvc *admin.MembersService) MembersService {
+	return &StubMembersService{
+		InsertFunc: func(groupKey string, member *admin.Member) (*admin.Member, error) {
+			return membersSvc.Insert(groupKey, member).Do()
+		},
+		GetFunc: func(groupKey string, memberKey string) (*admin.Member, error) {
+			return membersSvc.Get(groupKey, memberKey).Do()
+		},
+		DeleteFunc: func(groupKey string, memberKey string) error {
+			return membersSvc.Delete(groupKey, memberKey).Do()
+		},
+	}
+}

@@ -1,6 +1,6 @@
 provider "gsuite" {
-  credentials = "${file("/root/.config/gcloud/knickknacklabs-root-svc-accnt.json")}"
-  user_email  = "or@knickknacklabs.com"
+  credentials = "${var.gsuite_credentials}"
+  user_email  = "${var.user_email}"
 
   oauth_scopes = [
     "https://www.googleapis.com/auth/admin.directory.group",
@@ -9,23 +9,23 @@ provider "gsuite" {
 }
 
 resource "gsuite_group" "group" {
-  name        = "test"
-  description = "Test Group 1"
-  email       = "testgroup@knickknacklabs.com"
+  name        = "group"
+  description = "Group"
+  email       = "group@example.com"
 }
 
 resource "gsuite_user" "user" {
   name {
-    given_name  = "Test"
-    family_name = "User"
+    given_name  = "User"
+    family_name = "Manual"
   }
 
-  primary_email              = "testuser@knickknacklabs.com"
-  password                   = "weioneoi2f2"
+  primary_email              = "user@example.com"
+  password                   = "3ej8de29XC"
   change_password_next_login = true
 }
 
-# resource "gsuite_group_membership" "membership" {
-#   address = "beep"
-# }
-
+resource "gsuite_group_membership" "membership" {
+  group  = "${gsuite_group.group.email}"
+  member = "${gsuite_user.user.primary_email}"
+}
