@@ -2,22 +2,20 @@ package gsuite
 
 import (
 	"context"
-	"time"
-
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"github.com/hashicorp/terraform/helper/schema"
-	"github.com/pkg/errors"
-	"log"
-	"os"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/admin/directory/v1"
 )
 
-var (
-	// contextTimeout is the global context timeout for requests to complete.
-	contextTimeout = 15 * time.Second
-)
+var defaultOAuthScopes = []string{
+	admin.AdminDirectoryUserScope,
+	admin.AdminDirectoryGroupScope,
+}
 
-// Provider returns the actual provider instance.
 func Provider() *schema.Provider {
 	return &schema.Provider{
 		Schema: map[string]*schema.Schema{
@@ -28,74 +26,98 @@ func Provider() *schema.Provider {
 					"GOOGLE_CREDENTIALS",
 					"GOOGLE_CLOUD_KEYFILE_JSON",
 					"GCLOUD_KEYFILE_JSON",
-				}, nil),
+				}, ""),
 				ValidateFunc: validateCredentials,
 			},
-			"impersonated_user_email": &schema.Schema{
+			"user_email": &schema.Schema{
 				Type:     schema.TypeString,
-				Optional: true,
+				Required: true,
 			},
 			"oauth_scopes": &schema.Schema{
-				Type:     schema.TypeSet,
-				Elem:     &schema.Schema{Type: schema.TypeString},
+				Type: schema.TypeSet,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
 				Optional: true,
 			},
 		},
+
 		ResourcesMap: map[string]*schema.Resource{
-			"gsuite_group":         resourceGroup(),
-			"gsuite_user":          resourceUser(),
-			"gsuite_group_member":  resourceGroupMember(),
-			"gsuite_group_members": resourceGroupMembers(),
+			"gsuite_user":             resourceUser(),
+			"gsuite_group":            resourceGroup(),
+			"gsuite_group_membership": resourceGroupMembership(),
 		},
+
 		ConfigureFunc: providerConfigure,
 	}
 }
 
-func oauthScopesFromConfigOrDefault(oauthScopesSet *schema.Set) []string {
-	oauthScopes := convertStringSet(oauthScopesSet)
-	if len(oauthScopes) == 0 {
-		log.Printf("[INFO] No Oauth Scopes provided. Using default oauth scopes.")
-		oauthScopes = defaultOauthScopes
+func validateCredentials(v interface{}, _ string) ([]string, []error) {
+	creds := v.(string)
+
+	// Check for valid JSON
+	var tmp interface{}
+
+	if err := json.Unmarshal([]byte(creds), &tmp); err != nil {
+		return nil, []error{fmt.Errorf("invalid json: %s", err)}
 	}
-	return oauthScopes
+
+	return nil, nil
 }
 
 func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 	credentials := d.Get("credentials").(string)
-	impersonatedUserEmail := d.Get("impersonated_user_email").(string)
-	oauthScopes := oauthScopesFromConfigOrDefault(d.Get("oauth_scopes").(*schema.Set))
-	config := Config{
-		Credentials:           credentials,
-		ImpersonatedUserEmail: impersonatedUserEmail,
-		OauthScopes:           oauthScopes,
+	userEmail := d.Get("user_email").(string)
+
+	oauthScopesSet := d.Get("oauth_scopes").(*schema.Set)
+	oauthScopes := convertSetToStrings(oauthScopesSet)
+	if len(oauthScopes) == 0 {
+		oauthScopes = defaultOAuthScopes
 	}
 
-	if err := config.loadAndValidate(); err != nil {
-		return nil, errors.Wrap(err, "failed to load config")
+	httpClient, err := createAuthenticatedHTTPClient([]byte(credentials), userEmail, oauthScopes)
+	if err != nil {
+		return nil, err
 	}
 
-	return &config, nil
+	svcWrapper := newServiceWrapper(httpClient)
+
+	return svcWrapper, nil
 }
 
-// contextWithTimeout creates a new context with the global context timeout.
-func contextWithTimeout() (context.Context, func()) {
-	return context.WithTimeout(context.Background(), contextTimeout)
+type ServiceWrapper struct {
+	UsersService  UsersService
+	GroupsService GroupsService
 }
 
-func validateCredentials(v interface{}, k string) (warnings []string, errors []error) {
-	if v == nil || v.(string) == "" {
-		return
-	}
-	creds := v.(string)
-	// if this is a path and we can stat it, assume it's ok
-	if _, err := os.Stat(creds); err == nil {
-		return
-	}
-	var account accountFile
-	if err := json.Unmarshal([]byte(creds), &account); err != nil {
-		errors = append(errors,
-			fmt.Errorf("credentials are not valid JSON '%s': %s", creds, err))
+func newServiceWrapper(httpClient *http.Client) *ServiceWrapper {
+	svcWrapper := &ServiceWrapper{}
+
+	adminSvc, _ := admin.New(httpClient)
+
+	svcWrapper.UsersService = WrapUsersService(adminSvc.Users)
+	svcWrapper.GroupsService = WrapGroupsService(adminSvc.Groups)
+
+	return svcWrapper
+}
+
+func createAuthenticatedHTTPClient(jsonCredentials []byte, userEmail string, oauthScopes []string) (*http.Client, error) {
+	jwtConfig, err := google.JWTConfigFromJSON(jsonCredentials, oauthScopes...)
+	if err != nil {
+		return nil, err
 	}
 
-	return
+	jwtConfig.Subject = userEmail
+
+	httpClient := jwtConfig.Client(context.Background())
+
+	return httpClient, nil
+}
+
+func convertSetToStrings(st *schema.Set) []string {
+	ss := []string{}
+	for _, s := range st.List() {
+		ss = append(ss, s.(string))
+	}
+	return ss
 }
